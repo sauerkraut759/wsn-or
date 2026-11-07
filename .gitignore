@@ -1,0 +1,24 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Build files
+build/
+CMakeCache.txt
+CMakeFiles/
+Makefile
+
+# Binaries
+*.so
+*.pyd
+*.dll
+*.o
+*.obj
+
+# otros
+.vscode/
+.idea/
+*.swp
+.DS_Store
