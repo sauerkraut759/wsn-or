@@ -1,13 +1,18 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <vector>
+#include <string>
 #include <map>
 #include <tuple>
 #include <utility>
 #include <cstddef>
 #include <stdexcept>
+#include <memory>
+
+#include "ortools/linear_solver/linear_solver.h"
 
 namespace py = pybind11;
+namespace ort = operations_research;
 
 using EdgeList = std::vector<std::pair<int, int>>;
 using Node = std::pair<double, double>;
@@ -43,7 +48,33 @@ EdgeList compute_feasible_edges(const std::vector<Node>& coords, double D_max)
 
 void build_milp_model(MPSolver* solver, int N, const EdgeList& E, double g, double e_tx, double e_rx)
 {
-	return;
+	using ort::MPSolver;
+	using ort::MPVariable;
+
+	std::unique_ptr<MPSolver> solver(MPSolver::CreateSolver("SCIP"));
+	if (!solver) {
+		throw std::runtime_error("Error al instanciar solver SCIP");
+	}
+
+	const double inf = solver->infinity();
+
+	std::vector<MPVariable*> x(E.size());
+	std::vector<MPVariable*> f(E.size());
+
+	for (std::size_t k = 0; k < E.size(); ++k) {
+		int i = E[k].first;
+		int j = E[k].second;
+
+		// Nombres
+		std::string x_name = "x_" + std::to_string(i) + "_" + std::to_string(j);
+		std::string f_name = "f_" + std::to_string(i) + "_" + std::to_string(j);
+
+		x[k] = solver->MakeBoolVar(x_name);
+		f[k] = solver->MakeNumVar(0.0, inf, f_name);
+	}
+
+	// Variable objetivo
+	MPVariable* E_max = solver->MakeNumVar(0.0, inf, "E_max");
 }
 
 std::tuple<double, EdgeList> optimize_wsn_routing(int N, std::vector<Node> coords, double D_max, int g, double e_tx, double e_rx)
@@ -63,6 +94,9 @@ std::tuple<double, EdgeList> optimize_wsn_routing(int N, std::vector<Node> coord
 	if (e_tx < 0 || e_rx < 0) {
 		throw std::invalid_argument("Los costos energéticos de transmisión o recepión no pueden ser negativos");
 	}
+
+	long long M = (N - 1) * g; // Big-M
+	EdgeList E = compute_feasible_edges(coords, D_max); // enlaces posibles
 }
 
 
