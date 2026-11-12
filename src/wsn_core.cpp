@@ -27,6 +27,12 @@ namespace ort = operations_research;
 using EdgeList = std::vector<std::pair<i32, i32>>;
 using Node = std::pair<f64, f64>;
 
+struct MilpContext {
+	std::unique_ptr<ort::MPSolver> solver;
+	std::vector<ort::MPVariable*> x;
+	std::vector<ort::MPVariable*> f;
+	ort::MPVariable* E_max = nullptr;
+};
 
 inline f64 dist_sq(const Node& A, const Node& B) noexcept
 {
@@ -57,10 +63,11 @@ EdgeList compute_feasible_edges(const std::vector<Node>& coords, f64 D_max)
 	return E;
 }
 
-void build_milp_model(MPSolver* solver, i32 N, const EdgeList& E, i32 g, f64 e_tx, f64 e_rx)
+MilpContext build_milp_model(std::size_t N, const EdgeList& E, i32 g, f64 e_tx, f64 e_rx)
 {
 	using ort::MPSolver;
 	using ort::MPVariable;
+	using ort::MPConstraint;
 
 	std::unique_ptr<MPSolver> solver(MPSolver::CreateSolver("SCIP"));
 	if (!solver) {
@@ -68,7 +75,7 @@ void build_milp_model(MPSolver* solver, i32 N, const EdgeList& E, i32 g, f64 e_t
 	}
 
 	const f64 inf = solver->infinity();
-	const i64 M = (N - 1) * g; // Big-M 
+	const f64 M = (N - 1) * g; // Big-M 
 
 	/* ----- Variables ----- */
 
@@ -124,11 +131,35 @@ void build_milp_model(MPSolver* solver, i32 N, const EdgeList& E, i32 g, f64 e_t
 	for (std::size_t k = 0; k < E.size(); ++k) {
 		MPConstraint* c_bigm = solver->MakeRowConstraint(-inf, 0.0, "bigm_edge_" + std::to_string(k));
 		c_bigm->SetCoefficient(f[k], 1.0);
-		c_bigm->SetCoefficient(x[k], static_cast<f64>(-M));
+		c_bigm->SetCoefficient(x[k], -M);
 	}
+
+	/* ----- Configurar funcion objetivo ----- */
+
+	ort::MPObjective* const objective = solver->MutableObjective();
+	objective->SetCoefficient(E_max, 1.0);
+	objective->SetMinimization();
+
+	/* ----- Retorno ----- */
+
+	/*
+	 * Aunque retornar por valor aprovecharia NRVO, usar variables locales
+	 * evita el overhead generado por tener que recargar los registros cada vez
+	 * que se llama a funciones opacas de ortools.
+	 *
+	 * Además es más simple para el compilador con -O3 optimizar este codigo
+	 *
+	 * Probablemente al final solo me estoy ahorrando un par de ciclos de CPU
+	 */
+	 return {
+		.solver = std::move(solver),
+		.x      = std::move(x),
+		.f      = std::move(f),
+		.E_max  = E_max
+	};
 }
 
-std::tuple<f64, EdgeList> optimize_wsn_routing(i32 N, std::vector<Node> coords, f64 D_max, i32 g, f64 e_tx, f64 e_rx)
+std::tuple<f64, EdgeList> optimize_wsn_routing(std::size_t N, std::vector<Node> coords, f64 D_max, i32 g, f64 e_tx, f64 e_rx)
 {
 	if (N <= 0 || coords.size() <= 0) {
 		throw std::invalid_argument("La cantidad de nodos no puede ser menor a 1");
